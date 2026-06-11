@@ -1,0 +1,116 @@
+# ============================================================
+# Dipendenze npm con CVE noti
+#
+# CVE-2022-25878 — protobufjs < 6.11.3 (prototype pollution)   CVSS 8.8
+# CVE-2022-0536 — follow-redirects < 1.14.8 (info disclosure)  CVSS 6.5
+# CVE-2021-23343 — path-parse < 1.0.7 (ReDoS)                  CVSS 7.5
+# CVE-2021-3749 — axios < 0.21.2 (ReDoS)                        CVSS 7.5
+# CVE-2020-28469 — glob-parent < 5.1.2 (ReDoS)                 CVSS 7.5
+# ============================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: node-vuln-deps
+  namespace: vuln-test
+  labels:
+    app: node-vuln-deps
+    cve: "CVE-2022-25878,CVE-2022-0536,CVE-2021-3749"
+    severity: high
+    component: npm-dependencies
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: node-vuln-deps
+  template:
+    metadata:
+      labels:
+        app: node-vuln-deps
+        cve: "CVE-2022-25878"
+        severity: high
+    spec:
+      initContainers:
+        - name: npm-install
+          image: node:16.14.0
+          command: ["sh", "-c"]
+          args:
+            - |
+              cp /config/package.json /app/package.json && \
+              cd /app && npm install --legacy-peer-deps
+          volumeMounts:
+            - name: app-dir
+              mountPath: /app
+            - name: node-config
+              mountPath: /config
+      containers:
+        - name: node-app
+          image: node:16.14.0
+          command: ["node", "/app/server.js"]
+          ports:
+            - containerPort: 3000
+          volumeMounts:
+            - name: app-dir
+              mountPath: /app
+            - name: node-config
+              mountPath: /config
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+      volumes:
+        - name: app-dir
+          emptyDir: {}
+        - name: node-config
+          configMap:
+            name: node-app-config
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: node-app-config
+  namespace: vuln-test
+data:
+  package.json: |
+    {
+      "name": "vuln-node-app",
+      "version": "1.0.0",
+      "dependencies": {
+        "axios": "0.21.1",
+        "follow-redirects": "1.14.7",
+        "path-parse": "1.0.6",
+        "protobufjs": "6.11.2",
+        "glob-parent": "5.1.1",
+        "express": "4.17.1"
+      }
+    }
+
+  server.js: |
+    const express = require('express');
+    const app = express();
+
+    app.get('/', (req, res) => {
+      const deps = require('/app/package.json').dependencies;
+      res.json({ status: 'running', deps });
+    });
+
+    app.get('/health', (req, res) => res.send('ok'));
+
+    app.listen(3000, () => console.log('Listening on :3000'));
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: node-vuln-deps-svc
+  namespace: vuln-test
+  labels:
+    cve: "CVE-2022-25878"
+spec:
+  selector:
+    app: node-vuln-deps
+  ports:
+    - port: 3000
+      targetPort: 3000
+  type: ClusterIP

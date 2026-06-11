@@ -1,0 +1,56 @@
+# ============================================================
+# CVE-2017-5638 — Apache Struts RCE (Jakarta Multipart parser)
+# Immagine: ghcr.io/bgeneto/struts2-showcase:2.3.31
+#   → Struts 2.3.31 vulnerabile all'header Content-Type malevolo
+# Severity: CRITICAL (CVSS 10.0)
+# ============================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: struts-showcase
+  namespace: vuln-test
+  labels:
+    app: struts-showcase
+    cve: "CVE-2017-5638"
+    severity: critical
+    component: web-framework
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: struts-showcase
+  template:
+    metadata:
+      labels:
+        app: struts-showcase
+        cve: "CVE-2017-5638"
+        severity: critical
+    spec:
+      containers:
+        - name: struts
+          # Struts 2.3.31 — vulnerabile a RCE via Content-Type header
+          image: ghcr.io/bgeneto/struts2-showcase:2.3.31
+          ports:
+            - containerPort: 8080
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "250m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: struts-showcase-svc
+  namespace: vuln-test
+  labels:
+    cve: "CVE-2017-5638"
+spec:
+  selector:
+    app: struts-showcase
+  ports:
+    - port: 8080
+      targetPort: 8080
+  type: ClusterIP

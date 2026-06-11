@@ -1,0 +1,110 @@
+# ============================================================
+# Dipendenze Python con CVE noti
+#
+# CVE-2023-32681 — requests 2.28.0  (header leak su redirect)    CVSS 6.1
+# CVE-2022-23491 — certifi < 2022.12.7 (CA bundle compromessa)   CVSS 6.5
+# CVE-2021-33503 — urllib3 1.26.4 (ReDoS)                        CVSS 7.5
+# CVE-2018-18074 — requests 2.19.1 (header HTTP→HTTPS leak)      CVSS 9.8
+#
+# L'app usa un requirements.txt con versioni intenzionalmente vecchie
+# ============================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: python-vuln-deps
+  namespace: vuln-test
+  labels:
+    app: python-vuln-deps
+    cve: "CVE-2023-32681,CVE-2022-23491,CVE-2021-33503"
+    severity: high
+    component: python-dependencies
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: python-vuln-deps
+  template:
+    metadata:
+      labels:
+        app: python-vuln-deps
+        cve: "CVE-2023-32681"
+        severity: high
+    spec:
+      containers:
+        - name: python-app
+          # Immagine costruita dal Dockerfile nella ConfigMap
+          # Per il lab: usa python:3.9-slim come base
+          # Le dipendenze vulnerabili vengono installate via requirements.txt
+          image: python:3.9-slim
+          command: ["sh", "-c"]
+          args:
+            - |
+              pip install --no-cache-dir \
+                requests==2.28.0 \
+                certifi==2022.6.15 \
+                urllib3==1.26.4 \
+                flask==2.0.0 \
+                Jinja2==3.0.0 \
+                Werkzeug==2.0.0 && \
+              python /app/server.py
+          ports:
+            - containerPort: 5000
+          volumeMounts:
+            - name: app-code
+              mountPath: /app
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+      volumes:
+        - name: app-code
+          configMap:
+            name: python-app-code
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: python-app-code
+  namespace: vuln-test
+data:
+  server.py: |
+    from flask import Flask, jsonify
+    import requests, certifi, urllib3
+
+    app = Flask(__name__)
+
+    @app.route("/")
+    def index():
+        return jsonify({
+            "status": "running",
+            "deps": {
+                "requests": requests.__version__,
+                "certifi": certifi.__version__,
+                "urllib3": urllib3.__version__,
+            }
+        })
+
+    @app.route("/health")
+    def health():
+        return "ok", 200
+
+    if __name__ == "__main__":
+        app.run(host="0.0.0.0", port=5000)
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: python-vuln-deps-svc
+  namespace: vuln-test
+  labels:
+    cve: "CVE-2023-32681"
+spec:
+  selector:
+    app: python-vuln-deps
+  ports:
+    - port: 5000
+      targetPort: 5000
+  type: ClusterIP
